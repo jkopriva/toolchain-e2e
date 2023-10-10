@@ -98,17 +98,17 @@ func CreateProxyUsersForTest(t *testing.T, awaitilities wait.Awaitilities) []*Pr
 	users := []*ProxyUser{
 		{
 			ExpectedMemberCluster: awaitilities.Member1(),
-			Username:              "proxymember1",
+			Username:              GetGeneratedName("proxymember1"),
 			IdentityID:            uuid.Must(uuid.NewV4()),
 		},
 		{
 			ExpectedMemberCluster: awaitilities.Member2(),
-			Username:              "proxymember2",
+			Username:              GetGeneratedName("proxymember2"),
 			IdentityID:            uuid.Must(uuid.NewV4()),
 		},
 		{
 			ExpectedMemberCluster: awaitilities.Member1(),
-			Username:              "compliant.username", // contains a '.' that is valid in the username but should not be in the impersonation header since it should use the compliant username
+			Username:              GetGeneratedName("compliant.username"), // contains a '.' that is valid in the username but should not be in the impersonation header since it should use the compliant username
 			IdentityID:            uuid.Must(uuid.NewV4()),
 		},
 	}

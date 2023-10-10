@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/devfile/library/v2/pkg/util"
+
 	testconfig "github.com/codeready-toolchain/toolchain-common/pkg/test/config"
 	appstudiov1 "github.com/codeready-toolchain/toolchain-e2e/testsupport/appstudio/api/v1alpha1"
 	"github.com/codeready-toolchain/toolchain-e2e/testsupport/wait"
@@ -39,4 +41,8 @@ func SetAppstudioConfig(t *testing.T, hostAwait *wait.HostAwaitility, memberAwai
 	memberConfigurationWithSkipUserCreation := testconfig.ModifyMemberOperatorConfigObj(memberAwait.GetMemberOperatorConfig(t), testconfig.SkipUserCreation(true))
 	// configure default space tier to appstudio
 	hostAwait.UpdateToolchainConfig(t, testconfig.Tiers().DefaultUserTier("deactivate30").DefaultSpaceTier("appstudio"), testconfig.Members().Default(memberConfigurationWithSkipUserCreation.Spec))
+}
+
+func GetGeneratedName(name string) string {
+	return name + "-" + util.GenerateRandomString(4)
 }
