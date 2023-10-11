@@ -7,11 +7,14 @@ import (
 	"time"
 
 	toolchainv1alpha1 "github.com/codeready-toolchain/api/api/v1alpha1"
+	"github.com/codeready-toolchain/toolchain-common/pkg/cluster"
 	identitypkg "github.com/codeready-toolchain/toolchain-common/pkg/identity"
 	testsupport "github.com/codeready-toolchain/toolchain-e2e/testsupport"
 	appstudiov1 "github.com/codeready-toolchain/toolchain-e2e/testsupport/appstudio/api/v1alpha1"
+	. "github.com/codeready-toolchain/toolchain-e2e/testsupport/space"
 	spacebinding "github.com/codeready-toolchain/toolchain-e2e/testsupport/spacebinding"
 	"github.com/codeready-toolchain/toolchain-e2e/testsupport/wait"
+	. "github.com/codeready-toolchain/toolchain-e2e/testsupport/wait"
 	userv1 "github.com/openshift/api/user/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -120,6 +123,7 @@ func CreateProxyUsersForTest(t *testing.T, awaitilities wait.Awaitilities) []*Pr
 }
 
 func CreateAppStudioUser(t *testing.T, awaitilities wait.Awaitilities, user *ProxyUser) {
+	//SetAppstudioConfig(t, awaitilities.Host(), awaitilities.Member1())
 	// Create and approve signup
 	req := testsupport.NewSignupRequest(awaitilities).
 		Username(user.Username).
@@ -135,6 +139,19 @@ func CreateAppStudioUser(t *testing.T, awaitilities wait.Awaitilities, user *Pro
 	user.CompliantUsername = user.Signup.Status.CompliantUsername
 	_, err := awaitilities.Host().WaitForMasterUserRecord(t, user.CompliantUsername, wait.UntilMasterUserRecordHasCondition(wait.Provisioned()))
 	require.NoError(t, err)
+
+	targetClusterRoles := []string{cluster.RoleLabel(cluster.Tenant)}
+	spaceRequest, parentSpace := CreateSpaceRequest(t, awaitilities, awaitilities.Member1().ClusterName,
+		WithSpecTierName("appstudio"),
+		WithSpecTargetClusterRoles(targetClusterRoles))
+
+	_, err = awaitilities.Host().WaitForSubSpace(t, spaceRequest.Name, spaceRequest.Namespace, parentSpace.GetName(),
+		UntilSpaceHasTargetClusterRoles(targetClusterRoles),
+		UntilSpaceHasTier("appstudio-env"),
+		UntilSpaceHasAnyProvisionedNamespaces(),
+	)
+	require.NoError(t, err)
+	//SetToolchainConfig(t, awaitilities.Host(), awaitilities.Member1())
 }
 
 func CreatePreexistingUserAndIdentity(t *testing.T, user ProxyUser) (*userv1.User, *userv1.Identity) {

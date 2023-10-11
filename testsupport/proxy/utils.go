@@ -38,9 +38,16 @@ func NewApplication(applicationName, namespace string) *appstudiov1.Application 
 // SetAppstudioConfig applies toolchain configuration for appstudio scenarios
 func SetAppstudioConfig(t *testing.T, hostAwait *wait.HostAwaitility, memberAwait *wait.MemberAwaitility) {
 	// member cluster configured to skip user creation to mimic appstudio configuration where user & identity resources are not created
-	memberConfigurationWithSkipUserCreation := testconfig.ModifyMemberOperatorConfigObj(memberAwait.GetMemberOperatorConfig(t), testconfig.SkipUserCreation(true))
+	_ = testconfig.ModifyMemberOperatorConfigObj(memberAwait.GetMemberOperatorConfig(t), testconfig.SkipUserCreation(true))
 	// configure default space tier to appstudio
-	hostAwait.UpdateToolchainConfig(t, testconfig.Tiers().DefaultUserTier("deactivate30").DefaultSpaceTier("appstudio"), testconfig.Members().Default(memberConfigurationWithSkipUserCreation.Spec))
+	//hostAwait.UpdateToolchainConfig(t, testconfig.Tiers().DefaultUserTier("deactivate30").DefaultSpaceTier("appstudio"), testconfig.Members().Default(memberConfigurationWithSkipUserCreation.Spec))
+}
+
+func SetToolchainConfig(t *testing.T, hostAwait *wait.HostAwaitility, memberAwait *wait.MemberAwaitility) {
+	// member cluster configured to skip user creation to mimic appstudio configuration where user & identity resources are not created
+	memberConfigurationWithSkipUserCreation := testconfig.ModifyMemberOperatorConfigObj(memberAwait.GetMemberOperatorConfig(t), testconfig.SkipUserCreation(false))
+	// configure default space tier to appstudio
+	hostAwait.UpdateToolchainConfig(t, testconfig.Tiers().DefaultUserTier("deactivate30").DefaultSpaceTier("base"), testconfig.Members().Default(memberConfigurationWithSkipUserCreation.Spec))
 }
 
 func GetGeneratedName(name string) string {

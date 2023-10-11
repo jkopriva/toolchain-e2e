@@ -17,7 +17,7 @@ import (
 )
 
 func TestSpaceLister(t *testing.T) {
-	t.Parallel()
+	//t.Parallel()
 	// given
 	awaitilities := WaitForDeployments(t)
 	hostAwait := awaitilities.Host()

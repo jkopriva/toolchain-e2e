@@ -15,6 +15,7 @@ import (
 )
 
 func TestSharedWorkspaces(t *testing.T) {
+	t.Parallel()
 	// given
 	awaitilities := WaitForDeployments(t)
 	hostAwait := awaitilities.Host()
