@@ -11,9 +11,12 @@ import (
 	identitypkg "github.com/codeready-toolchain/toolchain-common/pkg/identity"
 	testsupport "github.com/codeready-toolchain/toolchain-e2e/testsupport"
 	appstudiov1 "github.com/codeready-toolchain/toolchain-e2e/testsupport/appstudio/api/v1alpha1"
-	. "github.com/codeready-toolchain/toolchain-e2e/testsupport/space"
+	spacesupport "github.com/codeready-toolchain/toolchain-e2e/testsupport/space"
+	"github.com/codeready-toolchain/toolchain-e2e/testsupport/tiers"
+
 	spacebinding "github.com/codeready-toolchain/toolchain-e2e/testsupport/spacebinding"
 	"github.com/codeready-toolchain/toolchain-e2e/testsupport/wait"
+
 	. "github.com/codeready-toolchain/toolchain-e2e/testsupport/wait"
 	userv1 "github.com/openshift/api/user/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +36,11 @@ type ProxyUser struct {
 	IdentityID            uuid.UUID
 	Signup                *toolchainv1alpha1.UserSignup
 	CompliantUsername     string
+}
+
+type UserToCreate struct {
+	ExpectedMemberCluster *wait.MemberAwaitility
+	Username              string
 }
 
 func (u *ProxyUser) ShareSpaceWith(t *testing.T, hostAwait *wait.HostAwaitility, guestUser *ProxyUser) {
@@ -122,8 +130,25 @@ func CreateProxyUsersForTest(t *testing.T, awaitilities wait.Awaitilities) []*Pr
 	return users
 }
 
+func CreateProxyUsersForTest2(t *testing.T, awaitilities wait.Awaitilities, usersToCreate []UserToCreate) []*ProxyUser {
+	var users []*ProxyUser
+	for _, user := range usersToCreate {
+		users = append(users, CreateProxyUser(t, awaitilities, user.Username, user.ExpectedMemberCluster))
+	}
+	return users
+}
+
+func CreateProxyUser(t *testing.T, awaitilities wait.Awaitilities, userName string, expectedCluster *wait.MemberAwaitility) *ProxyUser {
+	user := &ProxyUser{
+		ExpectedMemberCluster: expectedCluster,
+		Username:              GetGeneratedName(userName),
+		IdentityID:            uuid.Must(uuid.NewV4()),
+	}
+	CreateAppStudioUser(t, awaitilities, user)
+	return user
+}
+
 func CreateAppStudioUser(t *testing.T, awaitilities wait.Awaitilities, user *ProxyUser) {
-	//SetAppstudioConfig(t, awaitilities.Host(), awaitilities.Member1())
 	// Create and approve signup
 	req := testsupport.NewSignupRequest(awaitilities).
 		Username(user.Username).
@@ -135,23 +160,31 @@ func CreateAppStudioUser(t *testing.T, awaitilities wait.Awaitilities, user *Pro
 		Execute(t)
 	user.Signup, _ = req.Resources()
 	user.Token = req.GetToken()
+	// promote to appstudio
+	tiers.MoveSpaceToTier(t, awaitilities.Host(), user.Signup.Status.CompliantUsername, "appstudio")
+
+	t.Logf("user %s was promoted to appstudio tier", user.Username)
+
+	// verify that it's promoted
+	_, err := awaitilities.Host().WaitForMasterUserRecord(t, user.Signup.Status.CompliantUsername,
+		wait.UntilMasterUserRecordHasConditions(wait.Provisioned(), wait.ProvisionedNotificationCRCreated()))
+	require.NoError(t, err)
 	testsupport.VerifyResourcesProvisionedForSignup(t, awaitilities, user.Signup, "deactivate30", "appstudio")
 	user.CompliantUsername = user.Signup.Status.CompliantUsername
-	_, err := awaitilities.Host().WaitForMasterUserRecord(t, user.CompliantUsername, wait.UntilMasterUserRecordHasCondition(wait.Provisioned()))
+	_, err = awaitilities.Host().WaitForMasterUserRecord(t, user.CompliantUsername, wait.UntilMasterUserRecordHasCondition(wait.Provisioned()))
 	require.NoError(t, err)
 
 	targetClusterRoles := []string{cluster.RoleLabel(cluster.Tenant)}
-	spaceRequest, parentSpace := CreateSpaceRequest(t, awaitilities, awaitilities.Member1().ClusterName,
-		WithSpecTierName("appstudio"),
-		WithSpecTargetClusterRoles(targetClusterRoles))
+	spaceRequest, parentSpace := spacesupport.CreateSpaceRequest(t, awaitilities, awaitilities.Member1().ClusterName,
+		spacesupport.WithSpecTierName("appstudio"),
+		spacesupport.WithSpecTargetClusterRoles(targetClusterRoles))
 
 	_, err = awaitilities.Host().WaitForSubSpace(t, spaceRequest.Name, spaceRequest.Namespace, parentSpace.GetName(),
 		UntilSpaceHasTargetClusterRoles(targetClusterRoles),
-		UntilSpaceHasTier("appstudio-env"),
+		UntilSpaceHasTier("appstudio"),
 		UntilSpaceHasAnyProvisionedNamespaces(),
 	)
 	require.NoError(t, err)
-	//SetToolchainConfig(t, awaitilities.Host(), awaitilities.Member1())
 }
 
 func CreatePreexistingUserAndIdentity(t *testing.T, user ProxyUser) (*userv1.User, *userv1.Identity) {

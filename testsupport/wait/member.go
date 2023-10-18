@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -649,6 +650,7 @@ func UntilNSTemplateSetHasAnySpaceRoles() NSTemplateSetWaitCriterion {
 }
 
 func SpaceRole(templateRef string, usernames ...string) toolchainv1alpha1.NSTemplateSetSpaceRole {
+	sort.Strings(usernames)
 	return toolchainv1alpha1.NSTemplateSetSpaceRole{
 		TemplateRef: templateRef,
 		Usernames:   usernames,
@@ -2149,7 +2151,7 @@ func (a *MemberAwaitility) WaitForMemberWebhooks(t *testing.T, image string) {
 	a.waitForService(t)
 	a.waitForWebhookDeployment(t, image)
 	ca := a.verifySecret(t)
-	a.verifyUserPodWebhookConfig(t, ca)
+	a.verifyMutatingWebhookConfig(t, ca)
 	a.verifyValidatingWebhookConfig(t, ca)
 }
 
@@ -2236,35 +2238,78 @@ func (a *MemberAwaitility) verifySecret(t *testing.T) []byte {
 	return ca
 }
 
-func (a *MemberAwaitility) verifyUserPodWebhookConfig(t *testing.T, ca []byte) {
-	t.Logf("checking MutatingWebhookConfiguration '%s'", "sandbox-users-pods")
+func (a *MemberAwaitility) verifyMutatingWebhookConfig(t *testing.T, ca []byte) {
+	t.Logf("checking MutatingWebhookConfiguration")
 	actualMutWbhConf := &admv1.MutatingWebhookConfiguration{}
 	a.waitForResource(t, "", "member-operator-webhook", actualMutWbhConf)
 	assert.Equal(t, bothWebhookLabels, actualMutWbhConf.Labels)
-	require.Len(t, actualMutWbhConf.Webhooks, 1)
+	require.Len(t, actualMutWbhConf.Webhooks, 2)
 
-	webhook := actualMutWbhConf.Webhooks[0]
-	assert.Equal(t, "users.pods.webhook.sandbox", webhook.Name)
-	assert.Equal(t, []string{"v1"}, webhook.AdmissionReviewVersions)
-	assert.Equal(t, admv1.SideEffectClassNone, *webhook.SideEffects)
-	assert.Equal(t, int32(5), *webhook.TimeoutSeconds)
-	assert.Equal(t, admv1.NeverReinvocationPolicy, *webhook.ReinvocationPolicy)
-	assert.Equal(t, admv1.Ignore, *webhook.FailurePolicy)
-	assert.Equal(t, admv1.Equivalent, *webhook.MatchPolicy)
-	assert.Equal(t, codereadyToolchainProviderLabel, webhook.NamespaceSelector.MatchLabels)
-	assert.Equal(t, ca, webhook.ClientConfig.CABundle)
-	assert.Equal(t, "member-operator-webhook", webhook.ClientConfig.Service.Name)
-	assert.Equal(t, a.Namespace, webhook.ClientConfig.Service.Namespace)
-	assert.Equal(t, "/mutate-users-pods", *webhook.ClientConfig.Service.Path)
-	assert.Equal(t, int32(443), *webhook.ClientConfig.Service.Port)
-	require.Len(t, webhook.Rules, 1)
+	type Rule struct {
+		Operations  []admv1.OperationType
+		APIGroups   []string
+		APIVersions []string
+		Resources   []string
+	}
 
-	rule := webhook.Rules[0]
-	//assert.Equal(t, []admv1.OperationType{admv1.Create}, rule.Operations)
-	assert.Equal(t, []string{""}, rule.APIGroups)
-	assert.Equal(t, []string{"v1"}, rule.APIVersions)
-	assert.Equal(t, []string{"pods"}, rule.Resources)
-	assert.Equal(t, admv1.NamespacedScope, *rule.Scope)
+	tests := map[string]struct {
+		Index         int
+		Name          string
+		Path          string
+		FailurePolicy admv1.FailurePolicyType
+		Rule          Rule
+	}{
+		"users pods webhook": {
+			Index:         0,
+			Name:          "users.pods.webhook.sandbox",
+			Path:          "/mutate-users-pods",
+			FailurePolicy: admv1.Ignore,
+			Rule: Rule{
+				Operations:  []admv1.OperationType{"CREATE"},
+				APIGroups:   []string{""},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"pods"},
+			},
+		},
+		"virtual machine webhook": {
+			Index:         1,
+			Name:          "users.virtualmachines.webhook.sandbox",
+			Path:          "/mutate-virtual-machines",
+			FailurePolicy: admv1.Fail,
+			Rule: Rule{
+				Operations:  []admv1.OperationType{"CREATE"},
+				APIGroups:   []string{"kubevirt.io"},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"virtualmachines"},
+			},
+		},
+	}
+	for k, tc := range tests {
+		t.Run(k, func(t *testing.T) {
+			webhook := actualMutWbhConf.Webhooks[tc.Index]
+			assert.Equal(t, tc.Name, webhook.Name)
+			assert.Equal(t, []string{"v1"}, webhook.AdmissionReviewVersions)
+			assert.Equal(t, admv1.SideEffectClassNone, *webhook.SideEffects)
+			assert.Equal(t, int32(5), *webhook.TimeoutSeconds)
+			assert.Equal(t, admv1.NeverReinvocationPolicy, *webhook.ReinvocationPolicy)
+			assert.Equal(t, tc.FailurePolicy, *webhook.FailurePolicy)
+			assert.Equal(t, admv1.Equivalent, *webhook.MatchPolicy)
+			assert.Equal(t, codereadyToolchainProviderLabel, webhook.NamespaceSelector.MatchLabels)
+			assert.Equal(t, ca, webhook.ClientConfig.CABundle)
+			assert.Equal(t, "member-operator-webhook", webhook.ClientConfig.Service.Name)
+			assert.Equal(t, a.Namespace, webhook.ClientConfig.Service.Namespace)
+			assert.Equal(t, tc.Path, *webhook.ClientConfig.Service.Path)
+			assert.Equal(t, int32(443), *webhook.ClientConfig.Service.Port)
+			require.Len(t, webhook.Rules, 1)
+
+			rule := webhook.Rules[0]
+			assert.Equal(t, tc.Rule.Operations, rule.Operations)
+			assert.Equal(t, tc.Rule.APIGroups, rule.APIGroups)
+			assert.Equal(t, tc.Rule.APIVersions, rule.APIVersions)
+			assert.Equal(t, tc.Rule.Resources, rule.Resources)
+			assert.Equal(t, admv1.NamespacedScope, *rule.Scope)
+		})
+	}
 }
 
 func (a *MemberAwaitility) verifyValidatingWebhookConfig(t *testing.T, ca []byte) {
@@ -2301,7 +2346,7 @@ func (a *MemberAwaitility) verifyValidatingWebhookConfig(t *testing.T, ca []byte
 	assert.Equal(t, []string{"v1"}, checlusterWebhook.AdmissionReviewVersions)
 	assert.Equal(t, admv1.SideEffectClassNone, *checlusterWebhook.SideEffects)
 	assert.Equal(t, int32(5), *checlusterWebhook.TimeoutSeconds)
-	assert.Equal(t, admv1.Ignore, *checlusterWebhook.FailurePolicy)
+	assert.Equal(t, admv1.Fail, *checlusterWebhook.FailurePolicy)
 	assert.Equal(t, admv1.Equivalent, *checlusterWebhook.MatchPolicy)
 	assert.Equal(t, codereadyToolchainProviderLabel, checlusterWebhook.NamespaceSelector.MatchLabels)
 	assert.Equal(t, ca, checlusterWebhook.ClientConfig.CABundle)
@@ -2318,29 +2363,27 @@ func (a *MemberAwaitility) verifyValidatingWebhookConfig(t *testing.T, ca []byte
 	assert.Equal(t, []string{"checlusters"}, checlusterRule.Resources)
 	assert.Equal(t, admv1.NamespacedScope, *checlusterRule.Scope)
 
-	// TODO: uncomment once: https://github.com/codeready-toolchain/member-operator/pull/470
-	// is merged.
-	//spacebindingrequestWebhook := actualValWbhConf.Webhooks[2]
-	//assert.Equal(t, "users.spacebindingrequests.webhook.sandbox", spacebindingrequestWebhook.Name)
-	//assert.Equal(t, []string{"v1"}, spacebindingrequestWebhook.AdmissionReviewVersions)
-	//assert.Equal(t, admv1.SideEffectClassNone, *spacebindingrequestWebhook.SideEffects)
-	//assert.Equal(t, int32(5), *spacebindingrequestWebhook.TimeoutSeconds)
-	//assert.Equal(t, admv1.Ignore, *spacebindingrequestWebhook.FailurePolicy)
-	//assert.Equal(t, admv1.Equivalent, *spacebindingrequestWebhook.MatchPolicy)
-	//assert.Equal(t, codereadyToolchainProviderLabel, spacebindingrequestWebhook.NamespaceSelector.MatchLabels)
-	//assert.Equal(t, ca, spacebindingrequestWebhook.ClientConfig.CABundle)
-	//assert.Equal(t, "member-operator-webhook", spacebindingrequestWebhook.ClientConfig.Service.Name)
-	//assert.Equal(t, a.Namespace, spacebindingrequestWebhook.ClientConfig.Service.Namespace)
-	//assert.Equal(t, "/validate-spacebindingrequests", *spacebindingrequestWebhook.ClientConfig.Service.Path)
-	//assert.Equal(t, int32(443), *spacebindingrequestWebhook.ClientConfig.Service.Port)
-	//require.Len(t, spacebindingrequestWebhook.Rules, 1)
-	//
-	//spacebindingrequestRule := spacebindingrequestWebhook.Rules[0]
-	//assert.Equal(t, []admv1.OperationType{admv1.Create, admv1.Update}, spacebindingrequestRule.Operations)
-	//assert.Equal(t, []string{"toolchain.dev.openshift.com"}, spacebindingrequestRule.APIGroups)
-	//assert.Equal(t, []string{"v1alpha1"}, spacebindingrequestRule.APIVersions)
-	//assert.Equal(t, []string{"spacebindingrequests"}, spacebindingrequestRule.Resources)
-	//assert.Equal(t, admv1.NamespacedScope, *spacebindingrequestRule.Scope)
+	spacebindingrequestWebhook := actualValWbhConf.Webhooks[2]
+	assert.Equal(t, "users.spacebindingrequests.webhook.sandbox", spacebindingrequestWebhook.Name)
+	assert.Equal(t, []string{"v1"}, spacebindingrequestWebhook.AdmissionReviewVersions)
+	assert.Equal(t, admv1.SideEffectClassNone, *spacebindingrequestWebhook.SideEffects)
+	assert.Equal(t, int32(5), *spacebindingrequestWebhook.TimeoutSeconds)
+	assert.Equal(t, admv1.Fail, *spacebindingrequestWebhook.FailurePolicy)
+	assert.Equal(t, admv1.Equivalent, *spacebindingrequestWebhook.MatchPolicy)
+	assert.Equal(t, codereadyToolchainProviderLabel, spacebindingrequestWebhook.NamespaceSelector.MatchLabels)
+	assert.Equal(t, ca, spacebindingrequestWebhook.ClientConfig.CABundle)
+	assert.Equal(t, "member-operator-webhook", spacebindingrequestWebhook.ClientConfig.Service.Name)
+	assert.Equal(t, a.Namespace, spacebindingrequestWebhook.ClientConfig.Service.Namespace)
+	assert.Equal(t, "/validate-spacebindingrequests", *spacebindingrequestWebhook.ClientConfig.Service.Path)
+	assert.Equal(t, int32(443), *spacebindingrequestWebhook.ClientConfig.Service.Port)
+	require.Len(t, spacebindingrequestWebhook.Rules, 1)
+
+	spacebindingrequestRule := spacebindingrequestWebhook.Rules[0]
+	assert.Equal(t, []admv1.OperationType{admv1.Create, admv1.Update}, spacebindingrequestRule.Operations)
+	assert.Equal(t, []string{"toolchain.dev.openshift.com"}, spacebindingrequestRule.APIGroups)
+	assert.Equal(t, []string{"v1alpha1"}, spacebindingrequestRule.APIVersions)
+	assert.Equal(t, []string{"spacebindingrequests"}, spacebindingrequestRule.Resources)
+	assert.Equal(t, admv1.NamespacedScope, *spacebindingrequestRule.Scope)
 
 }
 

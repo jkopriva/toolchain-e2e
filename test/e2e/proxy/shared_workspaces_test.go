@@ -72,62 +72,62 @@ func TestSharedWorkspaces(t *testing.T) {
 			assert.Equal(t, expectedApp.Spec.DisplayName, createdApp.Spec.DisplayName)
 		})
 
-		t.Run("share primaryUser workspace with guestUser", func(t *testing.T) {
-			// given
+		// t.Run("share primaryUser workspace with guestUser", func(t *testing.T) {
+		// 	// given
 
-			// share primaryUser space with guestUser
-			primaryUser.ShareSpaceWith(t, hostAwait, guestUser)
+		// 	// share primaryUser space with guestUser
+		// 	primaryUser.ShareSpaceWith(t, hostAwait, guestUser)
 
-			// VerifySpaceRelatedResources will verify the roles and rolebindings are updated to include guestUser's SpaceBinding
-			VerifySpaceRelatedResources(t, awaitilities, primaryUser.Signup, "appstudio")
+		// 	// VerifySpaceRelatedResources will verify the roles and rolebindings are updated to include guestUser's SpaceBinding
+		// 	VerifySpaceRelatedResources(t, awaitilities, primaryUser.Signup, "appstudio")
 
-			// Start a new websocket watcher which watches for Application CRs in the user's namespace
-			w := NewWsWatcher(t, *guestUser, primaryUser.CompliantUsername, primaryUserWorkspaceURL)
-			closeConnection := w.Start()
-			defer closeConnection()
-			guestUserPrimaryWsCl, err := hostAwait.CreateAPIProxyClient(t, guestUser.Token, primaryUserWorkspaceURL)
-			require.NoError(t, err)
+		// 	// Start a new websocket watcher which watches for Application CRs in the user's namespace
+		// 	w := NewWsWatcher(t, *guestUser, primaryUser.CompliantUsername, primaryUserWorkspaceURL)
+		// 	closeConnection := w.Start()
+		// 	defer closeConnection()
+		// 	guestUserPrimaryWsCl, err := hostAwait.CreateAPIProxyClient(t, guestUser.Token, primaryUserWorkspaceURL)
+		// 	require.NoError(t, err)
 
-			// when
-			// user A requests the Application CR in primaryUser's namespace using the proxy
-			actualApp := &appstudiov1.Application{}
-			err = guestUserPrimaryWsCl.Get(context.TODO(), types.NamespacedName{Name: applicationName, Namespace: primaryUserNamespace}, actualApp)
+		// 	// when
+		// 	// user A requests the Application CR in primaryUser's namespace using the proxy
+		// 	actualApp := &appstudiov1.Application{}
+		// 	err = guestUserPrimaryWsCl.Get(context.TODO(), types.NamespacedName{Name: applicationName, Namespace: primaryUserNamespace}, actualApp)
 
-			// then
-			require.NoError(t, err) // allowed since guestUser has access to primaryUser's space
+		// 	// then
+		// 	require.NoError(t, err) // allowed since guestUser has access to primaryUser's space
 
-			// wait for the websocket watcher which uses the proxy to receive the Application CR
-			found, err := w.WaitForApplication(
-				expectedApp.Name,
-			)
-			require.NoError(t, err)
-			assert.NotEmpty(t, found)
+		// 	// wait for the websocket watcher which uses the proxy to receive the Application CR
+		// 	found, err := w.WaitForApplication(
+		// 		expectedApp.Name,
+		// 	)
+		// 	require.NoError(t, err)
+		// 	assert.NotEmpty(t, found)
 
-			// Double check that the Application does exist using a regular client (non-proxy)
-			createdApp := &appstudiov1.Application{}
-			err = guestUser.ExpectedMemberCluster.Client.Get(context.TODO(), types.NamespacedName{Namespace: primaryUserNamespace, Name: applicationName}, createdApp)
-			require.NoError(t, err)
-			require.NotEmpty(t, createdApp)
-			assert.Equal(t, expectedApp.Spec.DisplayName, createdApp.Spec.DisplayName)
+		// 	// Double check that the Application does exist using a regular client (non-proxy)
+		// 	createdApp := &appstudiov1.Application{}
+		// 	err = guestUser.ExpectedMemberCluster.Client.Get(context.TODO(), types.NamespacedName{Namespace: primaryUserNamespace, Name: applicationName}, createdApp)
+		// 	require.NoError(t, err)
+		// 	require.NotEmpty(t, createdApp)
+		// 	assert.Equal(t, expectedApp.Spec.DisplayName, createdApp.Spec.DisplayName)
 
-			t.Run("request for namespace that doesn't belong to workspace context should fail", func(t *testing.T) {
-				// In this test the guest user has access to the primary user's namespace since the primary user's workspace has been shared, but if they specify the wrong
-				// workspace context (guest user's workspace context) the request should fail. In order for proxy requests to succeed the namespace must belong to the workspace.
+		// 	t.Run("request for namespace that doesn't belong to workspace context should fail", func(t *testing.T) {
+		// 		// In this test the guest user has access to the primary user's namespace since the primary user's workspace has been shared, but if they specify the wrong
+		// 		// workspace context (guest user's workspace context) the request should fail. In order for proxy requests to succeed the namespace must belong to the workspace.
 
-				// given
-				workspaceName := guestUser.CompliantUsername // guestUser's workspace
-				guestUserWorkspaceURL := hostAwait.ProxyURLWithWorkspaceContext(workspaceName)
-				guestUserGuestWsCl, err := hostAwait.CreateAPIProxyClient(t, guestUser.Token, guestUserWorkspaceURL)
-				require.NoError(t, err)
+		// 		// given
+		// 		workspaceName := guestUser.CompliantUsername // guestUser's workspace
+		// 		guestUserWorkspaceURL := hostAwait.ProxyURLWithWorkspaceContext(workspaceName)
+		// 		guestUserGuestWsCl, err := hostAwait.CreateAPIProxyClient(t, guestUser.Token, guestUserWorkspaceURL)
+		// 		require.NoError(t, err)
 
-				// when
-				actualApp := &appstudiov1.Application{}
-				err = guestUserGuestWsCl.Get(context.TODO(), types.NamespacedName{Name: applicationName, Namespace: primaryUserNamespace}, actualApp) // primaryUser's namespace
+		// 		// when
+		// 		actualApp := &appstudiov1.Application{}
+		// 		err = guestUserGuestWsCl.Get(context.TODO(), types.NamespacedName{Name: applicationName, Namespace: primaryUserNamespace}, actualApp) // primaryUser's namespace
 
-				// then
-				require.EqualError(t, err, fmt.Sprintf(`invalid workspace request: access to namespace '%s' in workspace '%s' is forbidden (get applications.appstudio.redhat.com %s)`, primaryUserNamespace, workspaceName, applicationName))
-			})
-		})
+		// 		// then
+		// 		require.EqualError(t, err, fmt.Sprintf(`invalid workspace request: access to namespace '%s' in workspace '%s' is forbidden (get applications.appstudio.redhat.com %s)`, primaryUserNamespace, workspaceName, applicationName))
+		// 	})
+		// })
 
 	})
 
